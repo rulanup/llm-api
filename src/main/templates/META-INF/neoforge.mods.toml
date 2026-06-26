@@ -46,7 +46,7 @@ displayName="${mod_name}" #mandatory
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Example mod description.
+LLM API: a generic block / NBT manipulation SDK + HTTP endpoint for LLM-driven Minecraft mods.
 '''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.
