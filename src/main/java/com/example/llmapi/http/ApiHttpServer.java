@@ -52,6 +52,8 @@ public final class ApiHttpServer {
             server.createContext("/api/place", new PlaceHandler(auth));
             server.createContext("/api/nbt", new NbtHandler(auth));
             server.createContext("/api/batch", new BatchHandler(auth));
+            server.createContext("/api/web/search", new WebSearchHandler(auth));
+            server.createContext("/api/web/fetch", new WebFetchHandler(auth));
             server.createContext("/", new NotFoundHandler());
 
             server.start();

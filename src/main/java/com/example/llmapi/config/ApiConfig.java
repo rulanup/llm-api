@@ -27,6 +27,9 @@ public final class ApiConfig {
         public final ModConfigSpec.ConfigValue<List<? extends String>> tokens;
         public final ModConfigSpec.IntValue nbtSnbtLogTruncate;
         public final ModConfigSpec.IntValue requestLogLevel;
+        public final ModConfigSpec.ConfigValue<String> webSearchMcmodProxy;
+        public final ModConfigSpec.IntValue webSearchStepTimeoutSeconds;
+        public final ModConfigSpec.IntValue webFetchStepTimeoutSeconds;
 
         private Server(ModConfigSpec.Builder b) {
             b.comment("LLM API HTTP server configuration").push("server");
@@ -42,6 +45,19 @@ public final class ApiConfig {
                     .defineInRange("nbtSnbtLogTruncate", 200, 0, 8192);
             requestLogLevel = b.comment("0 = off, 1 = errors only, 2 = all requests.")
                     .defineInRange("requestLogLevel", 2, 0, 2);
+            webSearchMcmodProxy = b.comment("HTTPS proxy endpoint for MC百科 (mcmod.cn) requests. "
+                            + "The HTTP server appends '/html?keyword=...' for /api/web/search and "
+                            + "'/fetch?url=...' for /api/web/fetch (mcmod_item / mcmod_list modes). "
+                            + "Default: https://search.guili.fun. Set to empty string to disable "
+                            + "MC百科 entirely (/api/web/search will skip straight to Bing).")
+                    .define("webSearchMcmodProxy", "https://search.guili.fun");
+            webSearchStepTimeoutSeconds = b.comment("Per-engine HTTP timeout for /api/web/search, in seconds. "
+                            + "With the default 3-step fallback (MC百科 → Bing → DuckDuckGo), worst-case "
+                            + "latency is 3x this value. Default 12s, range 3..60s.")
+                    .defineInRange("webSearchStepTimeoutSeconds", 12, 3, 60);
+            webFetchStepTimeoutSeconds = b.comment("Per-call HTTP timeout for /api/web/fetch, in seconds. "
+                            + "Default 20s because MC百科 item pages can be heavy. Range 3..60s.")
+                    .defineInRange("webFetchStepTimeoutSeconds", 20, 3, 60);
             b.pop();
         }
     }
