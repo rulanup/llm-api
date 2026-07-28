@@ -62,7 +62,12 @@ public final class WebSearchTool {
             case "mcmod"      -> List.of("mcmod");
             case "bing"       -> List.of("bing");
             case "duckduckgo" -> List.of("duckduckgo");
-            default           -> List.of("mcmod", "bing", "duckduckgo");
+            // 'auto' is the chain for the LLM-facing web_search tool
+            // (mcmod_search uses the explicit 'mcmod' branch above).
+            // Skip mcmod here so an 'auto' request never silently falls
+            // into the Chinese MC wiki when the user asked for a
+            // general-web lookup.
+            default           -> List.of("bing", "duckduckgo");
         };
 
         int perStepTimeout = ApiConfig.SERVER.webSearchStepTimeoutSeconds.get();
@@ -148,26 +153,51 @@ public final class WebSearchTool {
         };
     }
 
-    // ───── MC百科 (via proxy) ─────
+    // ───── MC百科 (direct first, proxy fallback) ─────
 
     private static List<BingResult> searchMcmod(String query, int max) {
-        String proxy = ApiConfig.SERVER.webSearchMcmodProxy.get();
-        if (proxy == null || proxy.isBlank()) {
-            return List.of();
+        String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
+        // 1. Try direct: search.mcmod.cn/s returns HTML with no captcha in the common case.
+        String directBody = directMcmodSearch("https://search.mcmod.cn/s?key=" + encoded);
+        if (directBody != null) {
+            List<BingResult> direct = parseMcmodProxyResults(directBody, max);
+            if (!direct.isEmpty()) return direct;
         }
+        // 2. Fall back to the configured proxy (HTML with real links) if direct
+        //    failed or its HTML structure didn't yield results.
+        String proxy = ApiConfig.SERVER.webSearchMcmodProxy.get();
+        if (proxy == null || proxy.isBlank()) return List.of();
         try {
-            String encoded = URLEncoder.encode(query, StandardCharsets.UTF_8);
             String url = proxy.replaceAll("/+$", "") + "/html?keyword=" + encoded;
             HttpResponse<String> resp = httpGet(url, USER_AGENT, null);
             if (resp.statusCode() != 200) return List.of();
             String body = resp.body();
-            if (body == null || body.contains("captcha") || body.length() < 100) {
-                return List.of();
-            }
+            if (body == null || body.contains("captcha") || body.length() < 100) return List.of();
             return parseMcmodProxyResults(body, max);
         } catch (Exception e) {
-            LlmApiMod.LOGGER.debug("[llmapi] searchMcmod failed: {}", e.toString());
+            LlmApiMod.LOGGER.debug("[llmapi] searchMcmod proxy failed: {}", e.toString());
             return List.of();
+        }
+    }
+
+    /**
+     * Direct GET of the mcmod.cn {@code /s} search endpoint. Returns the HTML
+     * body only when it looks like a real result page (non-empty, no captcha
+     * markers); otherwise null so the caller can fall back to the proxy.
+     */
+    private static String directMcmodSearch(String directUrl) {
+        try {
+            HttpResponse<String> resp = httpGet(directUrl, USER_AGENT, "zh-CN,zh;q=0.9,en;q=0.8");
+            if (resp.statusCode() != 200) return null;
+            String body = resp.body();
+            if (body == null || body.length() < 50) return null;
+            String lower = body.toLowerCase();
+            if (lower.contains("captcha")) return null;
+            if (body.contains("验证") && body.contains("人机")) return null;
+            return body;
+        } catch (Exception e) {
+            LlmApiMod.LOGGER.debug("[llmapi] searchMcmod direct failed: {}", e.toString());
+            return null;
         }
     }
 

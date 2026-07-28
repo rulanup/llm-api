@@ -82,14 +82,9 @@ public final class WebFetchTool {
         if (!itemId.matches("\\d+")) {
             return errorResult("mcmod_item: 'item_id' must be numeric, got: " + itemId);
         }
-        String proxy = ApiConfig.SERVER.webSearchMcmodProxy.get();
-        if (proxy == null || proxy.isBlank()) {
-            return errorResult("mcmod_item: no MC百科 proxy configured "
-                    + "(set llmapi-server.toml webSearchMcmodProxy)");
-        }
         String targetUrl = "https://www.mcmod.cn/item/" + itemId + ".html";
-        String fetched = proxyFetch(proxy, targetUrl);
-        if (fetched == null) return errorResult("mcmod_item: fetch failed or empty body");
+        String fetched = fetchMcmodHtml(targetUrl);
+        if (fetched == null) return errorResult("mcmod_item: fetch failed (direct + proxy) for " + targetUrl);
         return parseItemPage(fetched, itemId, targetUrl);
     }
 
@@ -202,13 +197,9 @@ public final class WebFetchTool {
             return errorResult("mcmod_list: 'class_id' must be numeric, got: " + classId);
         }
         if (page < 1) page = 1;
-        String proxy = ApiConfig.SERVER.webSearchMcmodProxy.get();
-        if (proxy == null || proxy.isBlank()) {
-            return errorResult("mcmod_list: no MC百科 proxy configured");
-        }
         String targetUrl = "https://www.mcmod.cn/item/list/" + classId + "-" + page + ".html";
-        String fetched = proxyFetch(proxy, targetUrl);
-        if (fetched == null) return errorResult("mcmod_list: fetch failed or empty body");
+        String fetched = fetchMcmodHtml(targetUrl);
+        if (fetched == null) return errorResult("mcmod_list: fetch failed (direct + proxy) for " + targetUrl);
         return parseItemList(fetched, classId, page, targetUrl);
     }
 
@@ -368,6 +359,68 @@ public final class WebFetchTool {
         page.addProperty("body_text", HtmlHelpers.extractPageText(body, 4000, null, null));
         out.page = page;
         return out;
+    }
+
+    // ───── direct fetch + proxy fallback ─────
+
+    /**
+     * Fetch a mcmod.cn page: try a direct request first, then fall back to
+     * the configured proxy if the direct response is missing, looks like a
+     * captcha / interstitial, or the request failed. Returns null only when
+     * both paths fail (or when no proxy is configured and direct failed).
+     */
+    private static String fetchMcmodHtml(String targetUrl) {
+        String direct = directFetch(targetUrl);
+        if (direct != null && !looksLikeCaptchaOrEmpty(direct)) {
+            return direct;
+        }
+        String proxy = ApiConfig.SERVER.webSearchMcmodProxy.get();
+        if (proxy == null || proxy.isBlank()) {
+            return direct;
+        }
+        return proxyFetch(proxy, targetUrl);
+    }
+
+    /** Direct GET of {@code targetUrl} on the mcmod.cn site. Returns the body or null. */
+    private static String directFetch(String targetUrl) {
+        try {
+            int timeout = ApiConfig.SERVER.webFetchStepTimeoutSeconds.get();
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(targetUrl))
+                    .timeout(Duration.ofSeconds(timeout))
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .GET()
+                    .build();
+            CompletableFuture<HttpResponse<String>> fut = CompletableFuture.supplyAsync(
+                    () -> {
+                        try {
+                            return HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    }, FETCH_EXECUTOR);
+            HttpResponse<String> resp = fut.get(timeout + 2, TimeUnit.SECONDS);
+            if (resp.statusCode() != 200) return null;
+            return resp.body();
+        } catch (Exception e) {
+            LlmApiMod.LOGGER.debug("[llmapi] directFetch failed for {}: {}", targetUrl, e.toString());
+            return null;
+        }
+    }
+
+    /**
+     * Heuristic: does this body look like a captcha / interstitial page
+     * rather than real mcmod.cn content? Real pages have a {@code <title>}
+     * and enough content; captcha pages are short or mention verification.
+     */
+    private static boolean looksLikeCaptchaOrEmpty(String body) {
+        if (body == null || body.length() < 100) return true;
+        String lower = body.toLowerCase();
+        if (lower.contains("captcha")) return true;
+        if (body.contains("验证") && body.contains("人机")) return true;
+        if (!lower.contains("<title")) return true;
+        return false;
     }
 
     // ───── proxy fetch ─────

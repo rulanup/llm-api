@@ -45,11 +45,12 @@ public final class ApiConfig {
                     .defineInRange("nbtSnbtLogTruncate", 200, 0, 8192);
             requestLogLevel = b.comment("0 = off, 1 = errors only, 2 = all requests.")
                     .defineInRange("requestLogLevel", 2, 0, 2);
-            webSearchMcmodProxy = b.comment("HTTPS proxy endpoint for MC百科 (mcmod.cn) requests. "
-                            + "The HTTP server appends '/html?keyword=...' for /api/web/search and "
+            webSearchMcmodProxy = b.comment("HTTPS proxy endpoint for MC百科 (mcmod.cn), used as a fallback "
+                            + "when direct requests fail (e.g. captcha). Direct requests are tried first; "
+                            + "on failure the server appends '/html?keyword=...' for /api/web/search and "
                             + "'/fetch?url=...' for /api/web/fetch (mcmod_item / mcmod_list modes). "
-                            + "Default: https://search.guili.fun. Set to empty string to disable "
-                            + "MC百科 entirely (/api/web/search will skip straight to Bing).")
+                            + "Default: https://search.guili.fun. Set to empty string to disable the "
+                            + "proxy fallback (direct-only).")
                     .define("webSearchMcmodProxy", "https://search.guili.fun");
             webSearchStepTimeoutSeconds = b.comment("Per-engine HTTP timeout for /api/web/search, in seconds. "
                             + "With the default 3-step fallback (MC百科 → Bing → DuckDuckGo), worst-case "
